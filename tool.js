@@ -25,63 +25,121 @@
   // txtダウンロード版の本文行:
   // [00:00:02 -> 00:00:06] [00:00:02 -> 00:00:06] [SPEAKER_005] テキスト
   // リアルタイム版は話者が空([])になるため、[^\]]* で空も許容する。
+  // キャプチャ: 1=開始時刻(1つ目の区間の開始)、2=話者、3=本文
   var RE_DOWNLOAD =
-    /^\[\d{2}:\d{2}:\d{2}\s*->\s*\d{2}:\d{2}:\d{2}\]\s*\[\d{2}:\d{2}:\d{2}\s*->\s*\d{2}:\d{2}:\d{2}\]\s*\[[^\]]*\]\s?(.*)$/;
+    /^\[(\d{2}:\d{2}:\d{2})\s*->\s*\d{2}:\d{2}:\d{2}\]\s*\[\d{2}:\d{2}:\d{2}\s*->\s*\d{2}:\d{2}:\d{2}\]\s*\[([^\]]*)\]\s?(.*)$/;
 
   // コピペ版の本文行:
   // 00:00:02<TAB>SPEAKER_005<TAB>テキスト (通常版)
   // 00:00:00<TAB><TAB>テキスト           (リアルタイム版・話者列が空)
-  var RE_PASTE = /^\d{2}:\d{2}:\d{2}\t[^\t]*\t(.*)$/;
+  // キャプチャ: 1=時刻、2=話者、3=本文
+  var RE_PASTE = /^(\d{2}:\d{2}:\d{2})\t([^\t]*)\t(.*)$/;
 
   /**
-   * 入力テキスト全体を行単位で解析する。
+   * 入力テキスト全体を行単位で解析し、構造化した行リストを返す。
    * ファイル全体の形式判定は行わず、1行ごとに形式を判定するため、
    * 形式が混在していても堅牢に動作する。
    * @param {string} text 入力テキスト
-   * @returns {{output: string, warnCount: number, matchCount: number}}
+   * @returns {{entries: Array, warnCount: number, matchCount: number, hasSpeaker: boolean}}
+   *   entries の各要素:
+   *   { type: 'empty'|'header'|'utterance'|'unmatched', raw, text?, speaker?, time? }
    */
   function parseTranscript(text) {
     // 改行コードを LF に正規化(コピペ版ファイルは CRLF のため)
     var lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    var out = [];
-    var warnCount = 0;  // どの形式にも一致しなかった行数(空行・ヘッダー行は除く)
-    var matchCount = 0; // 形式に一致してタイムコード等を除去した行数
+    var entries = [];
+    var warnCount = 0;   // どの形式にも一致しなかった行数(空行・ヘッダー行は除く)
+    var matchCount = 0;  // 形式に一致してタイムコード等を除去した行数
+    var hasSpeaker = false; // 話者情報(空でない話者名)が1行でも存在するか
 
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
 
-      // 空行(空白のみの行を含む)は判定対象外。そのまま出力に残す
+      // 空行(空白のみの行を含む)は判定対象外
       if (line.trim() === '') {
-        out.push(line);
+        entries.push({ type: 'empty', raw: line });
         continue;
       }
 
-      // ヘッダー行はそのまま残す(警告対象外)
+      // ヘッダー行(警告対象外)
       if (RE_HEADER.test(line)) {
-        out.push(line);
+        entries.push({ type: 'header', raw: line });
         continue;
       }
 
-      var m = line.match(RE_DOWNLOAD);
+      var m = line.match(RE_DOWNLOAD) || line.match(RE_PASTE);
       if (m) {
-        out.push(m[1]);
+        var speaker = m[2].trim();
+        if (speaker !== '') hasSpeaker = true;
+        entries.push({ type: 'utterance', raw: line, time: m[1], speaker: speaker, text: m[3] });
         matchCount++;
         continue;
       }
 
-      m = line.match(RE_PASTE);
-      if (m) {
-        out.push(m[1]);
-        matchCount++;
-        continue;
-      }
-
-      // どの形式にも一致しない行: 原文のまま出力に残し、警告としてカウント
-      out.push(line);
+      // どの形式にも一致しない行: 原文のまま保持し、警告としてカウント
+      entries.push({ type: 'unmatched', raw: line });
       warnCount++;
     }
 
-    return { output: out.join('\n'), warnCount: warnCount, matchCount: matchCount };
+    return { entries: entries, warnCount: warnCount, matchCount: matchCount, hasSpeaker: hasSpeaker };
+  }
+
+  /**
+   * 出力パターン「TC除去」: 従来通り、元の行構造を維持して1発話1行で出力する。
+   * 空行・ヘッダー行・不一致行はそのままの位置に残す。
+   */
+  function renderPlain(entries) {
+    var out = [];
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      out.push(e.type === 'utterance' ? e.text : e.raw);
+    }
+    return out.join('\n');
+  }
+
+  /**
+   * 出力パターン「話者ごとにTC表示」:
+   * 同一話者の連続発話を1段落に連結(区切りなし)し、段落の先頭に
+   * 最初の発話の開始時刻を独立行として置く。話者が変わったら段落を分ける。
+   * - ヘッダー行はそのまま出力(段落は分断)
+   * - 不一致行はその位置で連結を分断し、原文のまま独立行として出力
+   * - 空行はこのパターンでは出力から除去
+   */
+  function renderBySpeaker(entries) {
+    var out = [];
+    var curSpeaker = null; // 連結中の段落の話者。null は「段落なし」
+    var buf = null;        // 連結中の本文
+
+    // 連結中の段落を出力に確定する
+    function flush() {
+      if (buf !== null) out.push(buf);
+      curSpeaker = null;
+      buf = null;
+    }
+
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+
+      if (e.type === 'empty') continue; // 空行は除去
+
+      if (e.type === 'utterance') {
+        if (curSpeaker !== null && e.speaker === curSpeaker) {
+          buf += e.text; // 同一話者の連続 → 区切りなしで直結
+        } else {
+          flush();
+          curSpeaker = e.speaker;
+          out.push(e.time); // TCを独立行として記載(話者名は書かない)
+          buf = e.text;
+        }
+        continue;
+      }
+
+      // header / unmatched: 段落を分断して原文のまま出力
+      flush();
+      out.push(e.raw);
+    }
+    flush();
+    return out.join('\n');
   }
 
   /**
@@ -137,20 +195,24 @@
     ':host { all: initial; }',
     '* { box-sizing: border-box; margin: 0; padding: 0; }',
     '.overlay {',
+    // 背景を持たないレイアウト用コンテナ。pointer-events:none でページ側の操作を妨げず、
+    // パネル本体のみ pointer-events を復活させる(フローティングウィンドウ方式)
     '  position: fixed; inset: 0; z-index: 2147483647;',
-    '  background: rgba(15, 23, 42, 0.55);',
     '  display: flex; align-items: center; justify-content: center;',
+    '  pointer-events: none;',
     '  font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;',
     '  font-size: 14px; color: #1e293b;',
     '}',
     '.panel {',
+    '  pointer-events: auto;',
     '  background: #ffffff; border-radius: 10px; width: min(880px, 94vw);',
-    '  max-height: 92vh; display: flex; flex-direction: column;',
-    '  box-shadow: 0 20px 60px rgba(0,0,0,0.35); overflow: hidden;',
+    '  max-height: 94vh; display: flex; flex-direction: column;',
+    '  box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08); overflow: hidden;',
     '}',
     '.titlebar {',
     '  display: flex; align-items: center; justify-content: space-between;',
     '  padding: 12px 16px; background: #0f766e; color: #fff;',
+    '  cursor: move; user-select: none;',
     '}',
     '.titlebar h1 { font-size: 15px; font-weight: 600; }',
     '.btn-close-x {',
@@ -166,8 +228,8 @@
     '  resize: vertical; background: #fff; color: #1e293b;',
     '}',
     'textarea:focus { outline: 2px solid #0f766e; outline-offset: -1px; }',
-    '#input-area { height: 140px; }',
-    '#output-area { height: 180px; background: #f8fafc; }',
+    '#input-area { height: 200px; }',
+    '#output-area { height: 400px; background: #f8fafc; }',
     '.dropzone {',
     '  border: 2px dashed #94a3b8; border-radius: 6px; padding: 10px 12px;',
     '  display: flex; align-items: center; gap: 12px; color: #64748b;',
@@ -201,13 +263,22 @@
     '  border-radius: 6px; padding: 8px 12px; font-size: 13px; display: none;',
     '}',
     '.banner-warn.visible { display: block; }',
+    /* 出力パターン切り替え */
+    '.mode-row { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }',
+    '.mode-option {',
+    '  display: inline-flex; align-items: center; gap: 5px; font-size: 13px;',
+    '  cursor: pointer; user-select: none;',
+    '}',
+    '.mode-option input { accent-color: #0f766e; cursor: pointer; margin: 0; }',
+    '.mode-option.disabled { color: #94a3b8; cursor: not-allowed; }',
+    '.mode-option.disabled input { cursor: not-allowed; }',
     '.status { font-size: 12px; color: #64748b; min-height: 16px; }',
     '.file-note { font-size: 12px; color: #0f766e; }',
     '@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }',
     '</style>',
     '<div class="overlay" id="overlay">',
-    '  <div class="panel" role="dialog" aria-label="TC除去ツール">',
-    '    <div class="titlebar">',
+    '  <div class="panel" id="panel" role="dialog" aria-label="TC除去ツール">',
+    '    <div class="titlebar" id="titlebar">',
     '      <h1>TC除去ツール — 文字起こしからタイムコード・話者情報を除去</h1>',
     '      <button class="btn-close-x" id="btn-x" title="閉じる" aria-label="閉じる">×</button>',
     '    </div>',
@@ -224,6 +295,11 @@
     '      <textarea id="input-area" placeholder="ここに文字起こし結果を貼り付け"></textarea>',
     '      <div class="banner-warn" id="banner-warn"></div>',
     '      <div>',
+    '        <div class="mode-row">',
+    '          <span class="section-label" style="margin-bottom:0">出力パターン</span>',
+    '          <label class="mode-option"><input type="radio" name="tc-mode" id="mode-plain" value="plain" checked> TC除去</label>',
+    '          <label class="mode-option" id="mode-speaker-label"><input type="radio" name="tc-mode" id="mode-speaker" value="speaker"> 話者ごとにTC表示</label>',
+    '        </div>',
     '        <span class="section-label">変換結果プレビュー</span>',
     '        <textarea id="output-area" readonly placeholder="変換結果がここに表示されます"></textarea>',
     '      </div>',
@@ -269,6 +345,26 @@
   // 変換・表示更新
   // ================================================================
 
+  var elModePlain = $('mode-plain');
+  var elModeSpeaker = $('mode-speaker');
+  var elModeSpeakerLabel = $('mode-speaker-label');
+
+  /** 現在選択中の出力パターンを返す('plain' | 'speaker') */
+  function currentMode() {
+    return elModeSpeaker.checked ? 'speaker' : 'plain';
+  }
+
+  /** 「話者ごとにTC表示」の活性/非活性を切り替える */
+  function setSpeakerModeEnabled(enabled) {
+    elModeSpeaker.disabled = !enabled;
+    elModeSpeakerLabel.classList.toggle('disabled', !enabled);
+    elModeSpeakerLabel.title = enabled ? '' : '入力に話者情報(SPEAKER)が含まれていないため選択できません';
+    // 非活性化時に選択中だった場合は「TC除去」へ戻す
+    if (!enabled && elModeSpeaker.checked) {
+      elModePlain.checked = true;
+    }
+  }
+
   function updatePreview() {
     var text = elInput.value;
     if (text.trim() === '') {
@@ -277,11 +373,19 @@
       elStatus.textContent = '';
       elCopy.disabled = true;
       elDownload.disabled = true;
+      setSpeakerModeEnabled(false);
       return;
     }
 
     var result = parseTranscript(text);
-    elOutput.value = result.output;
+
+    // 話者情報がない入力では「話者ごとにTC表示」を選択不可にする
+    setSpeakerModeEnabled(result.hasSpeaker);
+
+    elOutput.value = currentMode() === 'speaker'
+      ? renderBySpeaker(result.entries)
+      : renderPlain(result.entries);
+
     elCopy.disabled = false;
     elDownload.disabled = false;
     elStatus.textContent = result.matchCount + '行を変換しました';
@@ -293,6 +397,10 @@
       elBanner.classList.remove('visible');
     }
   }
+
+  // 出力パターン切り替え時はプレビューを再生成
+  elModePlain.addEventListener('change', updatePreview);
+  elModeSpeaker.addEventListener('change', updatePreview);
 
   // ================================================================
   // ファイル読み込み
@@ -412,6 +520,9 @@
     sourceFilename = null;
     elCopy.disabled = true;
     elDownload.disabled = true;
+    // 出力パターンもデフォルトの「TC除去」に戻す
+    elModePlain.checked = true;
+    setSpeakerModeEnabled(false);
     elInput.focus();
   }
 
@@ -420,6 +531,60 @@
   function hide() { host.style.display = 'none'; }
   $('btn-close').addEventListener('click', hide);
   $('btn-x').addEventListener('click', hide);
+
+  // ツール外のエリアをクリックしたら閉じる。
+  // click ではなく pointerdown/mousedown で判定することで、パネル内で
+  // テキスト選択を開始してパネル外でボタンを離した場合の誤閉じを防ぐ。
+  // capture 段階で監視し、ページ側がイベント伝播を止めても検知できるようにする。
+  var downEvent = window.PointerEvent ? 'pointerdown' : 'mousedown';
+  document.addEventListener(downEvent, function (e) {
+    if (host.style.display === 'none') return; // 非表示中は何もしない
+    // Shadow DOM 内で発生したイベントは composedPath に host が含まれる
+    var path = e.composedPath ? e.composedPath() : [];
+    if (path.indexOf(host) === -1) hide();
+  }, true);
+
+  // ================================================================
+  // タイトルバードラッグによるウィンドウ移動
+  // ================================================================
+
+  var panel = $('panel');
+  var titlebar = $('titlebar');
+  var drag = null; // ドラッグ中の状態 { dx, dy } (ポインタとパネル左上のオフセット)
+
+  titlebar.addEventListener('mousedown', function (e) {
+    // 閉じるボタン上でのドラッグ開始は無効(クリック操作を優先)
+    if (e.target.closest('#btn-x')) return;
+    if (e.button !== 0) return;
+
+    var rect = panel.getBoundingClientRect();
+    // 初回ドラッグ時に flex 中央配置から fixed 座標指定へ切り替える
+    // (現在の表示位置をそのまま left/top に固定してから移動を開始するため、位置が飛ばない)
+    panel.style.position = 'fixed';
+    panel.style.left = rect.left + 'px';
+    panel.style.top = rect.top + 'px';
+    panel.style.margin = '0';
+
+    drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+    e.preventDefault(); // テキスト選択の開始を防ぐ
+  });
+
+  // mousemove/mouseup はパネル外へポインタが出ても追従するよう document に登録
+  document.addEventListener('mousemove', function (e) {
+    if (!drag) return;
+    var w = panel.offsetWidth;
+    var x = e.clientX - drag.dx;
+    var y = e.clientY - drag.dy;
+    // 画面外へ完全に出て操作不能になるのを防ぐクランプ
+    // (横は本体の一部、縦はタイトルバーが必ず画面内に残るようにする)
+    x = Math.min(Math.max(x, -w + 80), window.innerWidth - 80);
+    y = Math.min(Math.max(y, 0), window.innerHeight - 40);
+    panel.style.left = x + 'px';
+    panel.style.top = y + 'px';
+  });
+
+  document.addEventListener('mouseup', function () { drag = null; });
+
 
   // オーバーレイの余白クリックでは閉じない(誤操作による入力消失を防ぐ)。
   // Esc キーでは閉じられるようにする
@@ -432,6 +597,9 @@
   // ================================================================
 
   document.body.appendChild(host);
+
+  // 初期状態: 入力が空のため「話者ごとにTC表示」は非活性
+  setSpeakerModeEnabled(false);
 
   // ブックマークレット再クリック時に再表示するためのフックを登録
   window.__tcRemoverShow = function () {
