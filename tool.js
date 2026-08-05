@@ -206,7 +206,8 @@
     '}',
     '.panel {',
     '  background: #ffffff; border-radius: 10px; width: 880px; max-width: 94vw;',
-    '  max-height: 94vh; display: flex; flex-direction: column;',
+    // 高さをビューポート基準で固定し、内部を比率配分することでスクロールを発生させない
+    '  height: 94vh; max-height: 94vh; display: flex; flex-direction: column;',
     '  box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08); overflow: hidden;',
     '}',
     '.titlebar {',
@@ -220,10 +221,18 @@
     '  cursor: pointer; padding: 2px 6px; border-radius: 4px;',
     '}',
     '.btn-close-x:hover { background: rgba(255,255,255,0.2); }',
-    '.body { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }',
-    // 縦崩れ防止: 内容が多い場合でも各要素(入力欄など)を自動縮小させず、
-    // .body 側のスクロールで対応する
+    '.body {',
+    '  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;',
+    // 本文領域はパネルの残り高さをすべて使い、内部要素を比率配分する。
+    // min-height: 0 はフレックス子がコンテンツ高さより小さくなれるようにするための指定
+    '  flex: 1 1 auto; min-height: 0; overflow-y: auto;',
+    '}',
+    // 固定要素(ドロップ領域・警告・ボタン行など)は縮小させない
     '.body > * { flex-shrink: 0; }',
+    // 入力欄とプレビュー領域は 4:6 の比率で残り空間を分け合う
+    // (高さは自動配分となるため手動リサイズは無効化)
+    '#input-area { flex: 4 1 0; min-height: 60px; resize: none; }',
+    '#preview-section { flex: 6 1 0; min-height: 0; display: flex; flex-direction: column; }',
     '.section-label { font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; display: block; }',
     'textarea {',
     '  width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;',
@@ -231,8 +240,7 @@
     '  resize: vertical; background: #fff; color: #1e293b;',
     '}',
     'textarea:focus { outline: 2px solid #0f766e; outline-offset: -1px; }',
-    '#input-area { height: 200px; }',
-    '#output-area { height: 400px; background: #f8fafc; }',
+    '#output-area { flex: 1 1 auto; min-height: 90px; background: #f8fafc; resize: none; }',
     '.dropzone {',
     '  border: 2px dashed #94a3b8; border-radius: 6px; padding: 10px 12px;',
     '  display: flex; align-items: center; gap: 12px; color: #64748b;',
@@ -297,7 +305,7 @@
     '      </div>',
     '      <textarea id="input-area" placeholder="ここに文字起こし結果を貼り付け"></textarea>',
     '      <div class="banner-warn" id="banner-warn"></div>',
-    '      <div>',
+    '      <div id="preview-section">',
     '        <div class="mode-row">',
     '          <span class="section-label" style="margin-bottom:0">出力パターン</span>',
     '          <label class="mode-option"><input type="radio" name="tc-mode" id="mode-plain" value="plain" checked> TC除去</label>',
