@@ -274,6 +274,9 @@
     '  border-radius: 6px; padding: 8px 12px; font-size: 13px; display: none;',
     '}',
     '.banner-warn.visible { display: block; }',
+    /* 入力エリア直下の操作行(一括削除ボタン) */
+    '.input-actions { display: flex; justify-content: flex-start; margin-top: -6px; }',
+    '.btn-small { padding: 4px 12px; font-size: 12px; }',
     /* 出力パターン切り替え */
     '.mode-row { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }',
     '.mode-option {',
@@ -304,6 +307,9 @@
     '        </div>',
     '      </div>',
     '      <textarea id="input-area" placeholder="ここに文字起こし結果を貼り付け"></textarea>',
+    '      <div class="input-actions">',
+    '        <button class="btn btn-small" id="btn-strip" disabled>TC行以外を一括削除</button>',
+    '      </div>',
     '      <div class="banner-warn" id="banner-warn"></div>',
     '      <div id="preview-section">',
     '        <div class="mode-row">',
@@ -376,6 +382,17 @@
     }
   }
 
+  var elStrip = $('btn-strip');
+
+  /** 削除対象(不一致行+空行)の行数を数える。ヘッダー行と発話行は対象外 */
+  function countRemovable(entries) {
+    var n = 0;
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].type === 'unmatched' || entries[i].type === 'empty') n++;
+    }
+    return n;
+  }
+
   function updatePreview() {
     var text = elInput.value;
     if (text.trim() === '') {
@@ -384,6 +401,7 @@
       elStatus.textContent = '';
       elCopy.disabled = true;
       elDownload.disabled = true;
+      elStrip.disabled = true;
       setSpeakerModeEnabled(false);
       return;
     }
@@ -392,6 +410,9 @@
 
     // 話者情報がない入力では「話者ごとにTC表示」を選択不可にする
     setSpeakerModeEnabled(result.hasSpeaker);
+
+    // 削除対象となる行(不一致行・空行)が存在する場合のみ一括削除ボタンを活性化
+    elStrip.disabled = countRemovable(result.entries) === 0;
 
     elOutput.value = currentMode() === 'speaker'
       ? renderBySpeaker(result.entries)
@@ -402,12 +423,32 @@
     elStatus.textContent = result.matchCount + '行を変換しました';
 
     if (result.warnCount > 0) {
-      elBanner.textContent = '⚠ TCが存在しない行が' + result.warnCount + '行ありました。原文のまま出力に含めています。TC行のみにすると「話者ごとにTC表示」が選択できます';
+      elBanner.textContent = '⚠ TCが存在しない行が' + result.warnCount + '行ありました。原文のまま出力に含めています。';
       elBanner.classList.add('visible');
     } else {
       elBanner.classList.remove('visible');
     }
   }
+
+  // 「TC行以外を一括削除」: 入力エリアから不一致行と空行を物理的に取り除く。
+  // ヘッダー行(話者の総数)と発話行(TCあり)は元の形のまま残すため、
+  // 削除後も通常の変換フローがそのまま機能する。
+  elStrip.addEventListener('click', function () {
+    var result = parseTranscript(elInput.value);
+    var removed = countRemovable(result.entries);
+    if (removed === 0) return;
+
+    var kept = [];
+    for (var i = 0; i < result.entries.length; i++) {
+      var e = result.entries[i];
+      if (e.type === 'header' || e.type === 'utterance') kept.push(e.raw);
+    }
+    // プログラム的な代入では input イベントは発火しないため、
+    // ファイル読込由来のファイル名(sourceFilename)は維持される
+    elInput.value = kept.join('\n');
+    updatePreview();
+    elStatus.textContent = 'TC行以外を' + removed + '行削除しました';
+  });
 
   // 出力パターン切り替え時はプレビューを再生成
   elModePlain.addEventListener('change', updatePreview);
@@ -531,6 +572,7 @@
     sourceFilename = null;
     elCopy.disabled = true;
     elDownload.disabled = true;
+    elStrip.disabled = true;
     // 出力パターンもデフォルトの「TC除去」に戻す
     elModePlain.checked = true;
     setSpeakerModeEnabled(false);
