@@ -188,22 +188,14 @@
     '.btn-primary:disabled:hover { background: #0f766e; }',
     '.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
     '.spacer { flex: 1; }',
-    /* コピーアイコンボタン */
+    /* コピーボタン(アイコン+テキスト) */
     '.btn-icon {',
-    '  position: relative; width: 36px; height: 34px; display: inline-flex;',
-    '  align-items: center; justify-content: center; padding: 0;',
+    '  display: inline-flex; align-items: center; justify-content: center; gap: 7px;',
     '}',
-    '.btn-icon svg { width: 17px; height: 17px; stroke: #1e293b; }',
+    '.btn-icon svg { width: 16px; height: 16px; stroke: #1e293b; flex-shrink: 0; }',
     '.btn-icon.copied svg { stroke: #0f766e; }',
+    '.btn-icon.copied { color: #0f766e; border-color: #0f766e; }',
     '.btn-icon:disabled svg { opacity: 0.45; }',
-    /* ツールチップ */
-    '.btn-icon::after {',
-    '  content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%;',
-    '  transform: translateX(-50%); background: #1e293b; color: #fff; font-size: 11px;',
-    '  padding: 4px 8px; border-radius: 4px; white-space: nowrap;',
-    '  opacity: 0; pointer-events: none; transition: opacity 0.15s;',
-    '}',
-    '.btn-icon:hover::after { opacity: 1; }',
     '.banner-warn {',
     '  background: #fef3c7; border: 1px solid #f59e0b; color: #92400e;',
     '  border-radius: 6px; padding: 8px 12px; font-size: 13px; display: none;',
@@ -236,10 +228,11 @@
     '        <textarea id="output-area" readonly placeholder="変換結果がここに表示されます"></textarea>',
     '      </div>',
     '      <div class="actions">',
-    // コピーアイコン(重なった四角の SVG を直接埋め込み。外部ライブラリ不使用)
-    '        <button class="btn btn-icon" id="btn-copy" data-tip="クリップボードにコピー" aria-label="クリップボードにコピー" disabled>',
+    // コピーボタン: コピーアイコン(重なった四角の SVG 直接埋め込み)+テキストラベル
+    '        <button class="btn btn-icon" id="btn-copy" disabled>',
     '          <svg id="icon-copy" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
     '          <svg id="icon-check" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M20 6 9 17l-5-5"/></svg>',
+    '          <span id="copy-label">クリップボードにコピー</span>',
     '        </button>',
     '        <button class="btn btn-primary" id="btn-download" disabled>TC除去txtダウンロード</button>',
     '        <span class="status" id="status"></span>',
@@ -353,17 +346,20 @@
   // コピー・ダウンロード・初期化・閉じる
   // ================================================================
 
+  var elCopyLabel = $('copy-label');
+
   function showCopied() {
+    // コピー成功のフィードバック: アイコンをチェックマークに、文言を「コピーしました」に一時変更
     iconCopy.style.display = 'none';
     iconCheck.style.display = '';
     elCopy.classList.add('copied');
-    elCopy.setAttribute('data-tip', 'コピーしました');
+    elCopyLabel.textContent = 'コピーしました';
     clearTimeout(copyResetTimer);
     copyResetTimer = setTimeout(function () {
       iconCopy.style.display = '';
       iconCheck.style.display = 'none';
       elCopy.classList.remove('copied');
-      elCopy.setAttribute('data-tip', 'クリップボードにコピー');
+      elCopyLabel.textContent = 'クリップボードにコピー';
     }, 1600);
   }
 
