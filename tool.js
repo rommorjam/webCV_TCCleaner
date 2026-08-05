@@ -402,7 +402,7 @@
     elStatus.textContent = result.matchCount + '行を変換しました';
 
     if (result.warnCount > 0) {
-      elBanner.textContent = '⚠ 形式に一致しない行が' + result.warnCount + '行ありました。原文のまま出力に含めています。';
+      elBanner.textContent = '⚠ TCが存在しない行が' + result.warnCount + '行ありました。原文のまま出力に含めています。TCがある行のみにすると「話者ごとにTC表示」が選択できます';
       elBanner.classList.add('visible');
     } else {
       elBanner.classList.remove('visible');
