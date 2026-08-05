@@ -195,17 +195,17 @@
     ':host { all: initial; }',
     '* { box-sizing: border-box; margin: 0; padding: 0; }',
     '.overlay {',
-    // 背景を持たないレイアウト用コンテナ。pointer-events:none でページ側の操作を妨げず、
-    // パネル本体のみ pointer-events を復活させる(フローティングウィンドウ方式)
-    '  position: fixed; inset: 0; z-index: 2147483647;',
+    // 全画面を覆う半透明の背景。ツール起動中は背後のページ操作をガードする。
+    // inset や min() は比較的新しい CSS のため、注入先の古いブラウザでも
+    // 確実に動くよう top/left/right/bottom と width/max-width で記述する
+    '  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2147483647;',
+    '  background: rgba(15, 23, 42, 0.45);',
     '  display: flex; align-items: center; justify-content: center;',
-    '  pointer-events: none;',
     '  font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;',
     '  font-size: 14px; color: #1e293b;',
     '}',
     '.panel {',
-    '  pointer-events: auto;',
-    '  background: #ffffff; border-radius: 10px; width: min(880px, 94vw);',
+    '  background: #ffffff; border-radius: 10px; width: 880px; max-width: 94vw;',
     '  max-height: 94vh; display: flex; flex-direction: column;',
     '  box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.08); overflow: hidden;',
     '}',
@@ -221,6 +221,9 @@
     '}',
     '.btn-close-x:hover { background: rgba(255,255,255,0.2); }',
     '.body { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }',
+    // 縦崩れ防止: 内容が多い場合でも各要素(入力欄など)を自動縮小させず、
+    // .body 側のスクロールで対応する
+    '.body > * { flex-shrink: 0; }',
     '.section-label { font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; display: block; }',
     'textarea {',
     '  width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;',
@@ -532,17 +535,17 @@
   $('btn-close').addEventListener('click', hide);
   $('btn-x').addEventListener('click', hide);
 
-  // ツール外のエリアをクリックしたら閉じる。
-  // click ではなく pointerdown/mousedown で判定することで、パネル内で
-  // テキスト選択を開始してパネル外でボタンを離した場合の誤閉じを防ぐ。
-  // capture 段階で監視し、ページ側がイベント伝播を止めても検知できるようにする。
+  // ツール外(背景オーバーレイ)のクリックで閉じる。
+  // 背景がページ操作をガードしているため、外側クリック = 背景クリックとなり、
+  // document 監視や composedPath に頼らずオーバーレイ要素で直接判定できる
+  // (composedPath 非対応の古いブラウザでも確実に動く)。
+  // click ではなく押下時点(pointerdown/mousedown)で判定することで、パネル内で
+  // テキスト選択を開始して背景上でボタンを離した場合の誤閉じを防ぐ。
+  var overlayEl = $('overlay');
   var downEvent = window.PointerEvent ? 'pointerdown' : 'mousedown';
-  document.addEventListener(downEvent, function (e) {
-    if (host.style.display === 'none') return; // 非表示中は何もしない
-    // Shadow DOM 内で発生したイベントは composedPath に host が含まれる
-    var path = e.composedPath ? e.composedPath() : [];
-    if (path.indexOf(host) === -1) hide();
-  }, true);
+  overlayEl.addEventListener(downEvent, function (e) {
+    if (e.target === overlayEl) hide(); // パネル内からのバブリングは target が異なるため閉じない
+  });
 
   // ================================================================
   // タイトルバードラッグによるウィンドウ移動
