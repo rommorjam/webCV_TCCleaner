@@ -273,10 +273,10 @@
     '  background: #fef3c7; border: 1px solid #f59e0b; color: #92400e;',
     '  border-radius: 6px; padding: 8px 12px; font-size: 13px; display: none;',
     '}',
-    '.banner-warn.visible { display: block; }',
-    /* 入力エリア直下の操作行(一括削除ボタン) */
-    '.input-actions { display: flex; justify-content: flex-start; margin-top: -6px; }',
-    '.btn-small { padding: 4px 12px; font-size: 12px; }',
+    '.banner-warn.visible { display: flex; align-items: center; justify-content: space-between; gap: 12px; }',
+    /* バナー内の一括削除ボタン(警告との関連を示すため右側に配置) */
+    '.btn-small { padding: 4px 12px; font-size: 12px; border-color: #f59e0b; white-space: nowrap; flex-shrink: 0; }',
+    '.btn-small:hover { background: #fffbeb; }',
     /* 出力パターン切り替え */
     '.mode-row { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }',
     '.mode-option {',
@@ -307,10 +307,10 @@
     '        </div>',
     '      </div>',
     '      <textarea id="input-area" placeholder="ここに文字起こし結果を貼り付け"></textarea>',
-    '      <div class="input-actions">',
-    '        <button class="btn btn-small" id="btn-strip" disabled>TC行以外を一括削除</button>',
+    '      <div class="banner-warn" id="banner-warn">',
+    '        <span id="banner-text"></span>',
+    '        <button class="btn btn-small" id="btn-strip">TC行以外を一括削除</button>',
     '      </div>',
-    '      <div class="banner-warn" id="banner-warn"></div>',
     '      <div id="preview-section">',
     '        <div class="mode-row">',
     '          <span class="section-label" style="margin-bottom:0">出力パターン</span>',
@@ -346,6 +346,7 @@
   var elInput = $('input-area');
   var elOutput = $('output-area');
   var elBanner = $('banner-warn');
+  var elBannerText = $('banner-text');
   var elStatus = $('status');
   var elFileNote = $('file-note');
   var elCopy = $('btn-copy');
@@ -423,7 +424,7 @@
     elStatus.textContent = result.matchCount + '行を変換しました';
 
     if (result.warnCount > 0) {
-      elBanner.textContent = '⚠ TCが存在しない行が' + result.warnCount + '行ありました。原文のまま出力に含めています。';
+      elBannerText.textContent = '⚠ TCが存在しない行が' + result.warnCount + '行ありました。原文のまま出力に含めています。';
       elBanner.classList.add('visible');
     } else {
       elBanner.classList.remove('visible');
