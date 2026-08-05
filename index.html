@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TC除去ツール — 配布ページ</title>
+<style>
+  /* 配布ページのスタイル(ツール本体は tool.js が Shadow DOM 内に描画する) */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+    background: #f1f5f9; color: #1e293b; line-height: 1.7;
+  }
+  .container { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  .lead { color: #475569; margin-bottom: 28px; font-size: 14px; }
+  .card {
+    background: #fff; border-radius: 10px; padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px;
+  }
+  .card h2 { font-size: 16px; margin-bottom: 12px; color: #0f766e; }
+  .card p { font-size: 14px; margin-bottom: 10px; }
+  .card ol { font-size: 14px; padding-left: 22px; }
+  .card ol li { margin-bottom: 6px; }
+  .bookmarklet {
+    display: inline-block; background: #0f766e; color: #fff; font-weight: 600;
+    padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px;
+    cursor: move;
+  }
+  .note { font-size: 12px; color: #64748b; margin-top: 10px; }
+  .btn-open {
+    display: inline-block; background: #fff; border: 1px solid #0f766e; color: #0f766e;
+    font-weight: 600; padding: 10px 20px; border-radius: 8px; font-size: 14px;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-open:hover { background: #ecfeff; }
+  code {
+    background: #f1f5f9; border-radius: 4px; padding: 1px 6px;
+    font-size: 12px; font-family: monospace;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>TC除去ツール</h1>
+  <p class="lead">文字起こし結果からタイムコードや話者情報を取り除き、テキストだけを抽出するツールです。</p>
+
+  <div class="card">
+    <h2>ブックマークレットの登録(初回のみ)</h2>
+    <ol>
+      <li>ブックマークバーを表示します(Chrome/Edge: <code>Ctrl+Shift+B</code>)</li>
+      <li>下のボタンを<strong>ブックマークバーへドラッグ&ドロップ</strong>します</li>
+    </ol>
+    <p style="margin-top: 16px;">
+      <a class="bookmarklet" id="bookmarklet-link" href="#">TC除去ツール</a>
+    </p>
+    <p class="note">
+      登録後は、文字起こしwebアプリの画面上でこのブックマークをクリックすると、
+      ページを離れずにツールが起動します。テキストを貼り付けるか、ダウンロードしたtxtファイルを読み込んでください。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>このページでそのまま使う</h2>
+    <p>ブックマークレットを使わずに、このページ上でツールを開くこともできます。</p>
+    <button class="btn-open" id="btn-open-tool">ツールを開く</button>
+  </div>
+
+  <div class="card">
+    <h2>対応している入力形式</h2>
+    <ol>
+      <li>webアプリからダウンロードしたtxtファイル(通常/リアルタイム文字起こし)</li>
+      <li>webアプリの画面からコピーしたテキスト(通常/リアルタイム文字起こし)</li>
+    </ol>
+    <p class="note">
+      出力は「クリップボードにコピー」と「BOM付きUTF-8のtxtダウンロード」から選べます。
+      形式に一致しない行があった場合は警告を表示した上で、原文のまま出力に含めます。
+    </p>
+  </div>
+</div>
+
+<script>
+  // ブックマークレットのリンクを、このページの配置先 URL から動的に生成する。
+  // これによりデプロイ先の URL を手作業で書き換える必要がなくなる。
+  (function () {
+    var origin = location.origin;
+    var toolUrl = origin + '/tool.js';
+    var pageUrl = origin + '/';
+
+    // ローダー型ブックマークレット:
+    // 1. tool.js を時刻付きクエリでページに注入(キャッシュによる旧バージョン残留を防止)
+    // 2. 注入に失敗した場合(CSP 強化など)は配布ページを新規タブで開くフォールバック
+    var code =
+      "(function(){" +
+      "var s=document.createElement('script');" +
+      "s.src='" + toolUrl + "?t='+Date.now();" +
+      "s.onerror=function(){window.open('" + pageUrl + "','_blank');};" +
+      "(document.body||document.documentElement).appendChild(s);" +
+      "})();";
+
+    document.getElementById('bookmarklet-link').href = 'javascript:' + code;
+
+    // 誤クリック時にこのページ上でツールが起動してしまわないよう、
+    // クリックは無効化してドラッグ登録のみを促す
+    document.getElementById('bookmarklet-link').addEventListener('click', function (e) {
+      e.preventDefault();
+      alert('このボタンはクリックではなく、ブックマークバーへドラッグして登録してください。');
+    });
+  })();
+
+  // 「ツールを開く」ボタン: このページに tool.js を読み込んで起動する
+  document.getElementById('btn-open-tool').addEventListener('click', function () {
+    if (window.__tcRemoverShow) {
+      window.__tcRemoverShow();
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = 'tool.js?t=' + Date.now();
+    document.body.appendChild(s);
+  });
+</script>
+</body>
+</html>
